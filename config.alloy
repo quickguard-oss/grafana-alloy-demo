@@ -1,0 +1,105 @@
+otelcol.exporter.otlp "default" {
+  client {
+    endpoint = "http://host.docker.internal:4317"
+
+    tls {
+      insecure = true
+    }
+  }
+}
+
+otelcol.processor.batch "default" {
+  timeout = "1s"
+
+  output {
+    traces = [
+      otelcol.exporter.otlp.default.input,
+    ]
+
+    metrics = [
+      otelcol.exporter.otlp.default.input,
+    ]
+
+    logs = [
+      otelcol.exporter.otlp.default.input,
+    ]
+  }
+}
+
+otelcol.processor.memory_limiter "default" {
+  check_interval = "1s"
+
+  limit = "200MiB"
+
+  output {
+    traces = [
+      otelcol.processor.batch.default.input,
+    ]
+
+    metrics = [
+      otelcol.processor.batch.default.input,
+    ]
+
+    logs = [
+      otelcol.processor.batch.default.input,
+    ]
+  }
+}
+
+otelcol.receiver.otlp "default" {
+  http {}
+
+  output {
+    traces = [
+      otelcol.processor.memory_limiter.default.input,
+    ]
+  }
+}
+
+otelcol.receiver.prometheus "default" {
+  output {
+    metrics = [
+      otelcol.processor.memory_limiter.default.input,
+    ]
+  }
+}
+
+prometheus.exporter.blackbox "default" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s } } }"
+
+  target {
+    name = "app"
+    address = "http://app:3000/up"
+    module = "http_2xx"
+  }
+}
+
+prometheus.scrape "default" {
+  scrape_interval = "10s"
+
+  targets = prometheus.exporter.blackbox.default.targets
+
+  forward_to = [
+    otelcol.receiver.prometheus.default.receiver,
+  ]
+}
+
+otelcol.receiver.loki "default" {
+  output {
+    logs = [
+      otelcol.processor.memory_limiter.default.input,
+    ]
+  }
+}
+
+loki.source.file "default" {
+  targets = [
+    {
+      __path__ = "/logs/app/dice.log",
+    },
+  ]
+
+  forward_to = [
+    otelcol.receiver.loki.default.receiver,
+  ]
+}
